@@ -1,0 +1,583 @@
+// =====================================================================
+//  AURORA STORE · Revenue, Costs and Results (one gateway vs multi-gateway)
+//  1) Power BI Desktop > DAX query view > paste EVERYTHING
+//  2) Click "Update model with changes"
+//  3) HTML Content visual > Values field:
+//     [HTML Revenue] · [HTML Costs] · [HTML Results]
+//  Tables: Sales, Expenses, Targets, Employees, Payment_Fees (no relationships)
+// =====================================================================
+DEFINE
+    // ---------- PARAMETERS (edit here) ----------
+    MEASURE Sales[Param Tax Rate] = 0.08
+    MEASURE Sales[Param Growth] = 0.15
+    MEASURE Sales[Param Inflation] = 0.05
+    MEASURE Sales[Param Setup Cost] = 8000
+    MEASURE Sales[Param Monthly Maintenance] = 300
+
+    // ---------- BASE MEASURES ----------
+    MEASURE Sales[Gross Revenue] = SUM ( Sales[Gross_Amount] )
+    MEASURE Sales[Discounts] = SUM ( Sales[Discount] )
+    MEASURE Sales[Net Revenue] = SUM ( Sales[Net_Amount] )
+    MEASURE Sales[Orders] = COUNTROWS ( Sales )
+    MEASURE Sales[Units] = SUM ( Sales[Quantity] )
+    MEASURE Sales[Avg Ticket] = DIVIDE ( [Net Revenue], [Orders] )
+    MEASURE Sales[COGS] = SUM ( Sales[Product_Cost] )
+    MEASURE Sales[Fee Asaas] = SUM ( Sales[Fee_Asaas] )
+    MEASURE Sales[Fee MP] = SUM ( Sales[Fee_MercadoPago] )
+    MEASURE Sales[Fee Routed] = SUM ( Sales[Fee_Routed] )
+    MEASURE Sales[Savings vs MP] = [Fee MP] - [Fee Routed]
+
+    // ---------- SHARED STYLES ----------
+    MEASURE Sales[CSS Page] = "font-family:Montserrat,Segoe UI,Arial,sans-serif;background:#f2f2f2;color:#222;padding-bottom:30px;"
+    MEASURE Sales[CSS Card] = "flex:1;min-width:150px;border-radius:10px;padding:14px 16px;color:#fff;box-shadow:0 3px 10px rgba(0,0,0,.12);"
+    MEASURE Sales[CSS Card Title] = "font-size:13px;font-weight:700;"
+    MEASURE Sales[CSS Card Value] = "font-size:23px;font-weight:600;text-align:right;margin-top:12px;white-space:nowrap;"
+    MEASURE Sales[CSS Card Sub] = "font-size:11px;text-align:right;margin-top:4px;"
+    MEASURE Sales[CSS Box] = "background:#fff;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.18);padding:14px;margin-top:20px;"
+    MEASURE Sales[CSS H2] = "font-size:16px;font-weight:800;color:#1565c0;margin:0 0 10px;"
+    MEASURE Sales[CSS TD] = "padding:6px 8px;text-align:center;border-bottom:1px solid #eef1f5;font-size:12px;"
+    MEASURE Sales[CSS Note] = "background:#1565c0;color:#fff;font-size:11px;border-radius:6px;padding:7px 12px;max-width:460px;margin:10px auto 0;text-align:center;"
+    MEASURE Sales[HTML Header] =
+        "<div style='display:flex;align-items:center;gap:16px;border-bottom:3px solid #1a4a8f;margin-bottom:6px'>"
+            & "<div style='width:64px;height:64px;background:#1a4a8f;color:#fff;font-size:38px;font-weight:800;display:flex;align-items:center;justify-content:center'>A</div>"
+            & "<div style='flex:1;font-size:27px;font-weight:800;color:#1565c0'>{T}</div>"
+            & "<div style='font-size:11px;color:#555;padding-right:14px'>Period: " & FORMAT ( MIN ( Sales[Date] ), "mmm d, yyyy", "en-US" ) & " to "
+            & FORMAT ( MAX ( Sales[Date] ), "mmm d, yyyy", "en-US" ) & " · fictional data · R$ (BRL)</div></div>"
+
+    // =================================================================
+    // PAGE 1 · REVENUE
+    // =================================================================
+    MEASURE Sales[HTML Revenue] =
+        VAR dRef = MAX ( Sales[Date] )
+        VAR dIni = MIN ( Sales[Date] )
+        VAR mIni = DATE ( YEAR ( dRef ), MONTH ( dRef ), 1 )
+        VAR daysMonth = DAY ( EOMONTH ( dRef, 0 ) )
+        VAR elapsed = DAY ( dRef )
+        VAR pmIni = EDATE ( mIni, -1 )
+        VAR pmEnd = MIN ( pmIni + elapsed - 1, EOMONTH ( pmIni, 0 ) )
+        VAR pyIni = EDATE ( mIni, -12 )
+        VAR pyEnd = MIN ( pyIni + elapsed - 1, EOMONTH ( pyIni, 0 ) )
+        VAR w1 = dRef - 6
+        VAR w0 = dRef - 13
+        VAR kGross = [Gross Revenue]
+        VAR kNet = [Net Revenue]
+        VAR kDisc = [Discounts]
+        VAR kOrd = [Orders]
+        VAR kUnits = [Units]
+        VAR kTarget = SUMX ( FILTER ( Targets, Targets[Month] >= DATE ( YEAR ( dIni ), MONTH ( dIni ), 1 ) && Targets[Month] <= dRef ), Targets[Revenue_Target] )
+        VAR kGap = kNet - kTarget
+        VAR crd = [CSS Card]
+        VAR ct = [CSS Card Title]
+        VAR cv = [CSS Card Value]
+        VAR cs = [CSS Card Sub]
+        VAR box = [CSS Box]
+        VAR h2 = [CSS H2]
+        VAR td = [CSS TD]
+        VAR note = [CSS Note]
+        VAR th = "<th style='background:#1565c0;color:#fff;padding:7px 8px;text-align:center;font-size:12px'>"
+        VAR thL = "<th style='background:#1565c0;color:#fff;padding:7px 8px;text-align:left;font-size:12px'>"
+        VAR tab = "<table style='width:100%;border-collapse:collapse;font-size:12px'>"
+        VAR cQ = "background:#d8e8fb;font-weight:700;"
+        VAR cM = "background:#fdf1c2;font-weight:700;"
+        VAR cR = "background:#b9e6f2;font-weight:700;"
+        // ---- cards ----
+        VAR htmCards =
+            "<div style='display:flex;gap:14px;flex-wrap:wrap;margin-top:14px'>"
+                & "<div style='" & crd & "background:linear-gradient(135deg,#3a8dde,#5fd3e8)'><div style='" & ct & "'>Gross revenue</div><div style='" & cv & "'>R$ " & FORMAT ( kGross, "#,##0.00", "en-US" ) & "</div><div style='" & cs & "'>Before discounts</div></div>"
+                & "<div style='" & crd & "background:linear-gradient(135deg,#25b99e,#7be0c3)'><div style='" & ct & "'>Net revenue</div><div style='" & cv & "'>R$ " & FORMAT ( kNet, "#,##0.00", "en-US" ) & "</div><div style='" & cs & "'><span style='background:#fff;padding:2px 8px;border-radius:10px;font-weight:700;color:" & IF ( kGap < 0, "#d32f2f", "#2e7d32" ) & "'>R$ " & FORMAT ( ABS ( kGap ), "#,##0", "en-US" ) & IF ( kGap < 0, " below", " above" ) & " target</span></div></div>"
+                & "<div style='" & crd & "background:linear-gradient(135deg,#f39c32,#f6d365)'><div style='" & ct & "'>Total discounts</div><div style='" & cv & "'>R$ " & FORMAT ( kDisc, "#,##0.00", "en-US" ) & "</div><div style='" & cs & "'>" & FORMAT ( DIVIDE ( kDisc, kGross ), "0.0%", "en-US" ) & " of gross revenue</div></div>"
+                & "<div style='" & crd & "background:linear-gradient(135deg,#8e7cf0,#c39cf3)'><div style='" & ct & "'>Total orders</div><div style='" & cv & "'>" & FORMAT ( kOrd, "#,##0", "en-US" ) & "</div><div style='" & cs & "'>" & FORMAT ( kUnits, "#,##0", "en-US" ) & " units sold</div></div>"
+                & "<div style='" & crd & "background:linear-gradient(135deg,#1fb5d6,#6ee2f0)'><div style='" & ct & "'>Average ticket</div><div style='" & cv & "'>R$ " & FORMAT ( DIVIDE ( kNet, kOrd ), "#,##0.00", "en-US" ) & "</div><div style='" & cs & "'>per order</div></div>"
+                & "</div>"
+        // ---- last 15 days ----
+        VAR t15 = ADDCOLUMNS ( CALENDAR ( dRef - 14, dRef ), "V", VAR d = [Date] RETURN CALCULATE ( [Net Revenue], Sales[Date] = d ) + 0 )
+        VAR mx15 = MAXX ( t15, [V] )
+        VAR wk1 = CALCULATE ( [Net Revenue], Sales[Date] >= w1, Sales[Date] <= dRef ) + 0
+        VAR wk0 = CALCULATE ( [Net Revenue], Sales[Date] >= w0, Sales[Date] < w1 ) + 0
+        VAR htm15 =
+            "<div style='" & box & "'><div style='" & h2 & "'>Revenue in the last 15 days</div>"
+                & "<div style='display:flex;gap:16px;font-size:12px;margin-bottom:8px;flex-wrap:wrap'><span><b style='color:#a6e6dc'>■</b> Previous week: <b>R$ " & FORMAT ( wk0, "#,##0.00", "en-US" ) & "</b></span><span><b style='color:#2fc3ad'>■</b> Last week: <b>R$ " & FORMAT ( wk1, "#,##0.00", "en-US" ) & "</b></span></div>"
+                & "<div style='display:flex;align-items:flex-end;gap:5px;height:205px;border-bottom:1px solid #cfd8e3'>"
+                & CONCATENATEX ( t15,
+                    VAR hh = ROUND ( DIVIDE ( [V], mx15 ) * 175, 0 )
+                    VAR col = IF ( [Date] >= w1, "#2fc3ad", IF ( [Date] >= w0, "#a6e6dc", "#d5dde5" ) )
+                    RETURN "<div style='flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%'><div style='font-size:9px;font-weight:700;margin-bottom:3px;white-space:nowrap'>" & FORMAT ( [V] / 1000, "#,##0.0", "en-US" ) & "K</div><div style='width:80%;height:" & FORMAT ( hh, "0", "en-US" ) & "px;background:" & col & ";border-radius:4px 4px 0 0'></div></div>",
+                    "", [Date], ASC )
+                & "</div><div style='display:flex;gap:5px;padding-top:4px'>"
+                & CONCATENATEX ( t15, "<div style='flex:1;text-align:center;font-size:10px;color:#555'>" & FORMAT ( [Date], "mmm d", "en-US" ) & "</div>", "", [Date], ASC )
+                & "</div></div>"
+        // ---- comparisons (weekly, monthly, year-over-year) ----
+        VAR Periods = {
+            ( 1, w1, dRef, w0, w1 - 1, 7 / daysMonth, "Weekly Comparison", "Last 7 days compared with the previous 7 days" ),
+            ( 2, mIni, dRef, pmIni, pmEnd, elapsed / daysMonth, "Monthly Comparison", "Current month compared with the same days of the previous month" ),
+            ( 3, mIni, dRef, pyIni, pyEnd, 0, "Year-over-Year Comparison", "Current month compared with the same period last year" )
+        }
+        VAR tP =
+            ADDCOLUMNS ( Periods, "H",
+                VAR a1 = [Value2]
+                VAR b1 = [Value3]
+                VAR a0 = [Value4]
+                VAR b0 = [Value5]
+                VAR mm = [Value6]
+                VAR ttl = [Value7]
+                VAR nt = [Value8]
+                VAR tc =
+                    ADDCOLUMNS ( VALUES ( Sales[Category] ),
+                        "Q1", CALCULATE ( [Orders], Sales[Date] >= a1, Sales[Date] <= b1 ) + 0,
+                        "Q0", CALCULATE ( [Orders], Sales[Date] >= a0, Sales[Date] <= b0 ) + 0,
+                        "R1", CALCULATE ( [Net Revenue], Sales[Date] >= a1, Sales[Date] <= b1 ) + 0,
+                        "R0", CALCULATE ( [Net Revenue], Sales[Date] >= a0, Sales[Date] <= b0 ) + 0,
+                        "MT", VAR cat = Sales[Category] RETURN SUMX ( FILTER ( Targets, Targets[Category] = cat && Targets[Month] = mIni ), Targets[Orders_Target] ) * mm )
+                VAR tq1 = SUMX ( tc, [Q1] )
+                VAR tq0 = SUMX ( tc, [Q0] )
+                VAR tr1 = SUMX ( tc, [R1] )
+                VAR tr0 = SUMX ( tc, [R0] )
+                VAR tmt = SUMX ( tc, [MT] )
+                VAR lines =
+                    CONCATENATEX ( tc,
+                        VAR dq = [Q1] - [Q0]
+                        VAR dm = [Q1] - [MT]
+                        VAR dr = [R1] - [R0]
+                        RETURN "<tr><td style='" & td & "text-align:left'>" & Sales[Category] & "</td>"
+                            & "<td style='" & td & cQ & "'>" & FORMAT ( [Q1], "#,##0", "en-US" ) & "</td>"
+                            & "<td style='" & td & "'><span style='font-weight:700;color:" & IF ( dq > 0, "#2e7d32", IF ( dq < 0, "#d32f2f", "#78909c" ) ) & "'>" & FORMAT ( dq, "+#,##0;-#,##0;0", "en-US" ) & IF ( dq > 0, " ▲", IF ( dq < 0, " ▼", "" ) ) & "</span></td>"
+                            & "<td style='" & td & cM & "'>" & IF ( mm = 0, "-", FORMAT ( [MT], "#,##0.0", "en-US" ) ) & "</td>"
+                            & "<td style='" & td & "'>" & IF ( mm = 0, "-", "<span style='font-weight:700;color:" & IF ( dm >= 0, "#2e7d32", "#d32f2f" ) & "'>" & FORMAT ( dm, "+#,##0.0;-#,##0.0;0", "en-US" ) & IF ( dm >= 0, " ▲", " ▼" ) & "</span>" ) & "</td>"
+                            & "<td style='" & td & cR & "'>R$ " & FORMAT ( [R1], "#,##0.00", "en-US" ) & "</td>"
+                            & "<td style='" & td & "'><span style='font-weight:700;color:" & IF ( dr >= 0, "#2e7d32", "#d32f2f" ) & "'>" & IF ( dr >= 0, "+", "-" ) & "R$ " & FORMAT ( ABS ( dr ), "#,##0.00", "en-US" ) & IF ( dr >= 0, " ▲", " ▼" ) & "</span></td></tr>",
+                        "", [R1], DESC )
+                VAR dqT = tq1 - tq0
+                VAR dmT = tq1 - tmt
+                VAR drT = tr1 - tr0
+                VAR totalRow =
+                    "<tr style='font-weight:800'><td style='" & td & "text-align:left;border-top:2px solid #cfd8e3'>Grand total</td>"
+                        & "<td style='" & td & cQ & "'>" & FORMAT ( tq1, "#,##0", "en-US" ) & "</td>"
+                        & "<td style='" & td & "'><span style='color:" & IF ( dqT >= 0, "#2e7d32", "#d32f2f" ) & "'>" & FORMAT ( dqT, "+#,##0;-#,##0;0", "en-US" ) & IF ( dqT >= 0, " ▲", " ▼" ) & "</span></td>"
+                        & "<td style='" & td & cM & "'>" & IF ( mm = 0, "-", FORMAT ( tmt, "#,##0.0", "en-US" ) ) & "</td>"
+                        & "<td style='" & td & "'>" & IF ( mm = 0, "-", "<span style='color:" & IF ( dmT >= 0, "#2e7d32", "#d32f2f" ) & "'>" & FORMAT ( dmT, "+#,##0.0;-#,##0.0;0", "en-US" ) & IF ( dmT >= 0, " ▲", " ▼" ) & "</span>" ) & "</td>"
+                        & "<td style='" & td & cR & "'>R$ " & FORMAT ( tr1, "#,##0.00", "en-US" ) & "</td>"
+                        & "<td style='" & td & "'><span style='color:" & IF ( drT >= 0, "#2e7d32", "#d32f2f" ) & "'>" & IF ( drT >= 0, "+", "-" ) & "R$ " & FORMAT ( ABS ( drT ), "#,##0.00", "en-US" ) & IF ( drT >= 0, " ▲", " ▼" ) & "</span></td></tr>"
+                RETURN "<div style='" & box & "'><div style='" & h2 & "'>" & ttl & "</div>" & tab & "<tr>" & thL & "Category</th>" & th & "Orders</th>" & th & "Δ</th>" & th & "Target</th>" & th & "Δ</th>" & th & "R$</th>" & th & "Δ</th></tr>"
+                    & lines & totalRow & "</table><div style='" & note & "'>" & nt & "</div></div>"
+            )
+        VAR hWeek = CONCATENATEX ( FILTER ( tP, [Value1] = 1 ), [H] )
+        VAR hMonth = CONCATENATEX ( FILTER ( tP, [Value1] = 2 ), [H] )
+        VAR hYoY = CONCATENATEX ( FILTER ( tP, [Value1] = 3 ), [H] )
+        // ---- top products, all time ----
+        VAR tPr = ADDCOLUMNS ( VALUES ( Sales[Product] ), "Q", CALCULATE ( [Units] ) + 0, "R", CALCULATE ( [Net Revenue] ) + 0 )
+        VAR tTop = TOPN ( 12, tPr, [R], DESC )
+        VAR htmTop =
+            "<div style='" & box & "'><div style='" & h2 & "'>Top products - All time</div>" & tab & "<tr>" & thL & "Product</th>" & th & "Units</th>" & th & "Revenue R$</th>" & th & "% of total</th></tr>"
+                & CONCATENATEX ( tTop,
+                    VAR rr = [R]
+                    VAR rk = COUNTROWS ( FILTER ( tTop, [R] >= rr ) )
+                    RETURN "<tr><td style='" & td & "text-align:left'>" & rk & ". " & Sales[Product] & "</td><td style='" & td & "'>" & FORMAT ( [Q], "#,##0", "en-US" ) & "</td><td style='" & td & cR & "'>R$ " & FORMAT ( [R], "#,##0.00", "en-US" ) & "</td><td style='" & td & "'>" & FORMAT ( DIVIDE ( [R], kNet ), "0.00%", "en-US" ) & "</td></tr>",
+                    "", [R], DESC )
+                & "<tr style='font-weight:800'><td style='" & td & "text-align:left'>Grand total</td><td style='" & td & "'>" & FORMAT ( kUnits, "#,##0", "en-US" ) & "</td><td style='" & td & cR & "'>R$ " & FORMAT ( kNet, "#,##0.00", "en-US" ) & "</td><td style='" & td & "'>100%</td></tr></table></div>"
+        // ---- top products, last week vs previous week ----
+        VAR tPw =
+            ADDCOLUMNS ( VALUES ( Sales[Product] ),
+                "Q1", CALCULATE ( [Units], Sales[Date] >= w1, Sales[Date] <= dRef ) + 0,
+                "Q0", CALCULATE ( [Units], Sales[Date] >= w0, Sales[Date] < w1 ) + 0,
+                "R1", CALCULATE ( [Net Revenue], Sales[Date] >= w1, Sales[Date] <= dRef ) + 0,
+                "R0", CALCULATE ( [Net Revenue], Sales[Date] >= w0, Sales[Date] < w1 ) + 0 )
+        VAR tPwT = TOPN ( 12, tPw, [R1], DESC )
+        VAR htmTopW =
+            "<div style='" & box & "'><div style='" & h2 & "'>Top products: last week vs previous week</div>" & tab & "<tr>" & thL & "Product</th>" & th & "Units</th>" & th & "Δ</th>" & th & "Revenue R$</th>" & th & "Δ</th></tr>"
+                & CONCATENATEX ( tPwT,
+                    VAR rr = [R1]
+                    VAR rk = COUNTROWS ( FILTER ( tPwT, [R1] >= rr ) )
+                    VAR dq = [Q1] - [Q0]
+                    VAR dr = [R1] - [R0]
+                    RETURN "<tr><td style='" & td & "text-align:left'>" & rk & ". " & Sales[Product] & "</td><td style='" & td & cQ & "'>" & FORMAT ( [Q1], "#,##0", "en-US" ) & "</td>"
+                        & "<td style='" & td & "'><span style='font-weight:700;color:" & IF ( dq > 0, "#2e7d32", IF ( dq < 0, "#d32f2f", "#78909c" ) ) & "'>" & FORMAT ( dq, "+#,##0;-#,##0;0", "en-US" ) & IF ( dq > 0, " ▲", IF ( dq < 0, " ▼", "" ) ) & "</span></td>"
+                        & "<td style='" & td & cR & "'>R$ " & FORMAT ( [R1], "#,##0.00", "en-US" ) & "</td>"
+                        & "<td style='" & td & "'><span style='font-weight:700;color:" & IF ( dr >= 0, "#2e7d32", "#d32f2f" ) & "'>" & IF ( dr >= 0, "+", "-" ) & "R$ " & FORMAT ( ABS ( dr ), "#,##0.00", "en-US" ) & IF ( dr >= 0, " ▲", " ▼" ) & "</span></td></tr>",
+                    "", [R1], DESC )
+                & "</table></div>"
+        // ---- monthly history ----
+        VAR tHist =
+            ADDCOLUMNS ( DISTINCT ( SELECTCOLUMNS ( Sales, "M", DATE ( YEAR ( Sales[Date] ), MONTH ( Sales[Date] ), 1 ) ) ),
+                "V", VAR m0 = [M] RETURN CALCULATE ( [Net Revenue], Sales[Date] >= m0, Sales[Date] <= EOMONTH ( m0, 0 ) ) + 0,
+                "MT", VAR m0 = [M] RETURN SUMX ( FILTER ( Targets, Targets[Month] = m0 ), Targets[Revenue_Target] ) + 0 )
+        VAR mxH = MAXX ( tHist, MAX ( [V], [MT] ) )
+        VAR htmHist =
+            "<div style='" & box & "'><div style='" & h2 & "'>Revenue history</div>"
+                & "<div style='font-size:12px;margin-bottom:8px'><b style='color:#2fc3ad'>■</b> Net revenue &nbsp; <b style='color:#f6c453'>■</b> Monthly target</div>"
+                & "<div style='display:flex;align-items:flex-end;gap:5px;height:240px;border-bottom:1px solid #cfd8e3'>"
+                & CONCATENATEX ( tHist,
+                    VAR hv = ROUND ( DIVIDE ( [V], mxH ) * 210, 0 )
+                    VAR hm = ROUND ( DIVIDE ( [MT], mxH ) * 210, 0 )
+                    RETURN "<div style='flex:1;display:flex;align-items:flex-end;justify-content:center;gap:2px;height:100%'>"
+                        & "<div style='width:46%;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%'><div style='font-size:8.5px;font-weight:700'>" & FORMAT ( [V] / 1000, "#,##0", "en-US" ) & "K</div><div style='width:100%;height:" & FORMAT ( hv, "0", "en-US" ) & "px;background:#2fc3ad;border-radius:3px 3px 0 0'></div></div>"
+                        & "<div style='width:46%;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%'><div style='font-size:8.5px;font-weight:700'>" & FORMAT ( [MT] / 1000, "#,##0", "en-US" ) & "K</div><div style='width:100%;height:" & FORMAT ( hm, "0", "en-US" ) & "px;background:#f6c453;border-radius:3px 3px 0 0'></div></div></div>",
+                    "", [M], ASC )
+                & "</div><div style='display:flex;gap:5px;padding-top:4px'>"
+                & CONCATENATEX ( tHist, "<div style='flex:1;text-align:center;font-size:10px;color:#555'>" & FORMAT ( [M], "mmm yy", "en-US" ) & "</div>", "", [M], ASC )
+                & "</div></div>"
+        RETURN
+            "<div style='" & [CSS Page] & "'>" & SUBSTITUTE ( [HTML Header], "{T}", "Revenue Report - Aurora Store" )
+                & "<div style='padding:0 20px'>" & htmCards
+                & "<div style='display:grid;grid-template-columns:1fr 1.15fr;gap:20px'><div>" & htm15 & "</div><div>" & hWeek & "</div></div>"
+                & hMonth
+                & "<div style='display:grid;grid-template-columns:1fr 1fr;gap:20px'><div>" & htmTop & "</div><div>" & htmTopW & "</div></div>"
+                & htmHist & hYoY & "</div></div>"
+
+    // =================================================================
+    // PAGE 2 · COSTS
+    // =================================================================
+    MEASURE Sales[HTML Costs] =
+        VAR dRef = MAX ( Sales[Date] )
+        VAR dIni = MIN ( Sales[Date] )
+        VAR mIni = DATE ( YEAR ( dRef ), MONTH ( dRef ), 1 )
+        VAR yA = YEAR ( dRef )
+        VAR tD = FILTER ( Expenses, Expenses[Date] >= dIni && Expenses[Date] <= dRef )
+        VAR kFix = SUMX ( FILTER ( tD, Expenses[Type] = "Fixed" ), Expenses[Amount] ) + 0
+        VAR kVar = SUMX ( FILTER ( tD, Expenses[Type] = "Variable" ), Expenses[Amount] ) + 0
+        VAR kTot = kFix + kVar
+        VAR kCOGS = [COGS]
+        VAR kNet = [Net Revenue]
+        VAR tE = FILTER ( Employees, Employees[Start_Date] <= dRef )
+        VAR kHead = SUMX ( tE, Employees[Headcount] )
+        VAR kPay = SUMX ( tE, Employees[Total_Salary] )
+        VAR crd = [CSS Card]
+        VAR ct = [CSS Card Title]
+        VAR cv = [CSS Card Value]
+        VAR cs = [CSS Card Sub]
+        VAR box = [CSS Box]
+        VAR td = [CSS TD]
+        VAR h2 = "font-size:17px;font-weight:600;text-align:center;margin:0 0 10px;color:#222;"
+        VAR th = "<th style='background:#f3d36b;color:#222;padding:7px 8px;text-align:center;font-size:12px'>"
+        VAR tab = "<table style='width:100%;border-collapse:collapse;font-size:12px'>"
+        VAR lg = "<span style='display:inline-block;width:11px;height:11px;border-radius:3px;margin:0 5px 0 12px;vertical-align:-1px;background:"
+        VAR htmCards =
+            "<div style='display:flex;gap:14px;flex-wrap:wrap;margin-top:14px'>"
+                & "<div style='" & crd & "background:linear-gradient(135deg,#f0653a,#f5916a)'><div style='" & ct & "'>Total expenses</div><div style='" & cv & "'>R$ " & FORMAT ( kTot, "#,##0.00", "en-US" ) & "</div><div style='" & cs & "'>Fixed + variable</div></div>"
+                & "<div style='" & crd & "background:linear-gradient(135deg,#efc93a,#f6e27a)'><div style='" & ct & "'>Variable expenses</div><div style='" & cv & "'>R$ " & FORMAT ( kVar, "#,##0.00", "en-US" ) & "</div><div style='" & cs & "'>" & FORMAT ( DIVIDE ( kVar, kTot ), "0.0%", "en-US" ) & " of total expenses</div></div>"
+                & "<div style='" & crd & "background:linear-gradient(135deg,#f7931e,#f9b54c)'><div style='" & ct & "'>Fixed expenses</div><div style='" & cv & "'>R$ " & FORMAT ( kFix, "#,##0.00", "en-US" ) & "</div><div style='" & cs & "'>" & FORMAT ( DIVIDE ( kFix, kTot ), "0.0%", "en-US" ) & " of total expenses</div></div>"
+                & "<div style='" & crd & "background:linear-gradient(135deg,#e96b6b,#f4a3a3)'><div style='" & ct & "'>Cost of goods sold</div><div style='" & cv & "'>R$ " & FORMAT ( kCOGS, "#,##0.00", "en-US" ) & "</div><div style='" & cs & "'>" & FORMAT ( DIVIDE ( kCOGS, kNet ), "0.0%", "en-US" ) & " of net revenue</div></div>"
+                & "<div style='" & crd & "background:linear-gradient(135deg,#eeb98a,#f2a25b)'><div style='" & ct & "'>Headcount</div><div style='" & cv & "'>" & FORMAT ( kHead, "0", "en-US" ) & "</div><div style='" & cs & "'>Current payroll: R$ " & FORMAT ( kPay, "#,##0", "en-US" ) & "/mo</div></div>"
+                & "</div>"
+        // ---- year-to-date vs previous year ----
+        VAR tAc =
+            ADDCOLUMNS ( GENERATESERIES ( 1, MONTH ( dRef ), 1 ),
+                "A", VAR mm = [Value] RETURN SUMX ( FILTER ( Expenses, Expenses[Date] >= DATE ( yA, 1, 1 ) && Expenses[Date] <= EOMONTH ( DATE ( yA, mm, 1 ), 0 ) ), Expenses[Amount] ) + 0,
+                "P", VAR mm = [Value] RETURN SUMX ( FILTER ( Expenses, Expenses[Date] >= DATE ( yA - 1, 1, 1 ) && Expenses[Date] <= EOMONTH ( DATE ( yA - 1, mm, 1 ), 0 ) ), Expenses[Amount] ) + 0 )
+        VAR mxAc = MAXX ( tAc, MAX ( [A], [P] ) )
+        VAR htmAc =
+            "<div style='" & box & "'><div style='" & h2 & "'>Year-to-date expenses: " & yA & " vs " & ( yA - 1 ) & "</div>"
+                & "<div style='font-size:12px;margin-bottom:8px'>" & lg & "#f9c99b'></span>" & ( yA - 1 ) & lg & "#f05a28'></span>" & yA & "</div>"
+                & "<div style='display:flex;align-items:flex-end;gap:6px;height:220px;border-bottom:1px solid #cfd8e3'>"
+                & CONCATENATEX ( tAc,
+                    VAR hA = ROUND ( DIVIDE ( [A], mxAc ) * 190, 0 )
+                    VAR hP = ROUND ( DIVIDE ( [P], mxAc ) * 190, 0 )
+                    RETURN "<div style='flex:1;display:flex;align-items:flex-end;justify-content:center;gap:3px;height:100%'>"
+                        & "<div style='width:44%;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%'><div style='font-size:9.5px;font-weight:700'>" & FORMAT ( [P] / 1000, "#,##0", "en-US" ) & "K</div><div style='width:100%;height:" & FORMAT ( hP, "0", "en-US" ) & "px;background:#f9c99b;border-radius:3px 3px 0 0'></div></div>"
+                        & "<div style='width:44%;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%'><div style='font-size:9.5px;font-weight:700'>" & FORMAT ( [A] / 1000, "#,##0", "en-US" ) & "K</div><div style='width:100%;height:" & FORMAT ( hA, "0", "en-US" ) & "px;background:#f05a28;border-radius:3px 3px 0 0'></div></div></div>",
+                    "", [Value], ASC )
+                & "</div><div style='display:flex;gap:6px;padding-top:4px'>"
+                & CONCATENATEX ( tAc, "<div style='flex:1;text-align:center;font-size:10px;color:#555'>" & FORMAT ( DATE ( yA, [Value], 1 ), "mmm", "en-US" ) & "</div>", "", [Value], ASC )
+                & "</div></div>"
+        // ---- monthly: fixed vs variable ----
+        VAR tM =
+            ADDCOLUMNS ( DISTINCT ( SELECTCOLUMNS ( tD, "M", DATE ( YEAR ( Expenses[Date] ), MONTH ( Expenses[Date] ), 1 ) ) ),
+                "FX", VAR m0 = [M] RETURN SUMX ( FILTER ( tD, Expenses[Type] = "Fixed" && Expenses[Date] >= m0 && Expenses[Date] <= EOMONTH ( m0, 0 ) ), Expenses[Amount] ) + 0,
+                "VR", VAR m0 = [M] RETURN SUMX ( FILTER ( tD, Expenses[Type] = "Variable" && Expenses[Date] >= m0 && Expenses[Date] <= EOMONTH ( m0, 0 ) ), Expenses[Amount] ) + 0 )
+        VAR mxM = MAXX ( tM, [FX] + [VR] )
+        VAR htmMonthly =
+            "<div style='" & box & "'><div style='" & h2 & "'>Monthly expenses: fixed vs variable</div>"
+                & "<div style='font-size:12px;margin-bottom:8px'>" & lg & "#fdc874'></span>Fixed expenses" & lg & "#ec6a64'></span>Variable expenses</div>"
+                & "<div style='display:flex;align-items:flex-end;gap:5px;height:240px;border-bottom:1px solid #cfd8e3'>"
+                & CONCATENATEX ( tM,
+                    VAR hF = ROUND ( DIVIDE ( [FX], mxM ) * 210, 0 )
+                    VAR hV = ROUND ( DIVIDE ( [VR], mxM ) * 210, 0 )
+                    RETURN "<div style='flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%'><div style='font-size:9px;font-weight:700;margin-bottom:3px'>" & FORMAT ( ( [FX] + [VR] ) / 1000, "#,##0", "en-US" ) & "K</div>"
+                        & "<div style='width:76%;height:" & FORMAT ( hV, "0", "en-US" ) & "px;background:#ec6a64'></div><div style='width:76%;height:" & FORMAT ( hF, "0", "en-US" ) & "px;background:#fdc874'></div></div>",
+                    "", [M], ASC )
+                & "</div><div style='display:flex;gap:5px;padding-top:4px'>"
+                & CONCATENATEX ( tM, "<div style='flex:1;text-align:center;font-size:10px;color:#555'>" & FORMAT ( [M], "mmm yy", "en-US" ) & "</div>", "", [M], ASC )
+                & "</div></div>"
+        // ---- this month vs last month ----
+        VAR tM2 = FILTER ( tM, [M] >= EDATE ( mIni, -1 ) )
+        VAR mx2 = MAXX ( tM2, MAX ( [FX], [VR] ) )
+        VAR htmMoM =
+            "<div style='" & box & "'><div style='" & h2 & "'>This month vs last month</div>"
+                & "<div style='font-size:12px;margin-bottom:8px'>" & lg & "#fdc874'></span>Fixed expenses" & lg & "#ec6a64'></span>Variable expenses</div>"
+                & "<div style='display:flex;align-items:flex-end;gap:20px;height:230px;border-bottom:1px solid #cfd8e3'>"
+                & CONCATENATEX ( tM2,
+                    VAR hF = ROUND ( DIVIDE ( [FX], mx2 ) * 195, 0 )
+                    VAR hV = ROUND ( DIVIDE ( [VR], mx2 ) * 195, 0 )
+                    RETURN "<div style='flex:1;display:flex;align-items:flex-end;justify-content:center;gap:4px;height:100%'>"
+                        & "<div style='width:40%;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%'><div style='font-size:11px;font-weight:700'>R$ " & FORMAT ( [FX], "#,##0", "en-US" ) & "</div><div style='width:100%;height:" & FORMAT ( hF, "0", "en-US" ) & "px;background:#fdc874'></div></div>"
+                        & "<div style='width:40%;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%'><div style='font-size:11px;font-weight:700'>R$ " & FORMAT ( [VR], "#,##0", "en-US" ) & "</div><div style='width:100%;height:" & FORMAT ( hV, "0", "en-US" ) & "px;background:#ec6a64'></div></div></div>",
+                    "", [M], ASC )
+                & "</div><div style='display:flex;gap:20px;padding-top:4px'>"
+                & CONCATENATEX ( tM2, "<div style='flex:1;text-align:center;font-size:11px;color:#555'>" & FORMAT ( [M], "mmm yy", "en-US" ) & "</div>", "", [M], ASC )
+                & "</div></div>"
+        // ---- payroll ----
+        VAR htmPayroll =
+            "<div style='" & box & "'><div style='" & h2 & "'>Payroll</div>" & tab & "<tr>" & th & "Start date</th>" & th & "Type</th>" & th & "Role</th>" & th & "Unit salary</th>" & th & "Qty</th>" & th & "Total salary</th></tr>"
+                & CONCATENATEX ( tE,
+                    VAR sal = Employees[Salary]
+                    VAR hc = IF ( sal >= 6000, "#f2c94c", IF ( sal >= 3500, "#f6dc84", "#faf0c8" ) )
+                    RETURN "<tr><td style='" & td & "'>" & FORMAT ( Employees[Start_Date], "mmm d, yyyy", "en-US" ) & "</td><td style='" & td & "'>" & Employees[Type] & "</td><td style='" & td & "text-align:left'>" & Employees[Role] & "</td><td style='" & td & "background:" & hc & "'>" & FORMAT ( sal, "#,##0", "en-US" ) & "</td><td style='" & td & "'>" & Employees[Headcount] & "</td><td style='" & td & "background:#fde3c0'>" & FORMAT ( Employees[Total_Salary], "#,##0", "en-US" ) & "</td></tr>",
+                    "", Employees[Start_Date], DESC )
+                & "<tr style='font-weight:800'><td style='" & td & "'></td><td style='" & td & "'></td><td style='" & td & "text-align:left'>Grand total</td><td style='" & td & "'></td><td style='" & td & "'>" & FORMAT ( kHead, "0", "en-US" ) & "</td><td style='" & td & "'>" & FORMAT ( kPay, "#,##0", "en-US" ) & "</td></tr></table></div>"
+        // ---- expense tables ----
+        VAR head = tab & "<tr>" & th & "Date</th>" & th & "Item / service</th>" & th & "Fixed expenses</th>" & th & "Variable expenses</th></tr>"
+        VAR foot = "<tr style='font-weight:800'><td style='" & td & "'></td><td style='" & td & "'>Grand total</td><td style='" & td & "'>R$ " & FORMAT ( kFix, "#,##0.00", "en-US" ) & "</td><td style='" & td & "'>R$ " & FORMAT ( kVar, "#,##0.00", "en-US" ) & "</td></tr></table></div>"
+        VAR tTopD = TOPN ( 14, tD, Expenses[Amount], DESC, Expenses[Date], DESC )
+        VAR tHisD = TOPN ( 14, tD, Expenses[Date], DESC, Expenses[Amount], DESC )
+        VAR htmTopD =
+            "<div style='" & box & "'><div style='" & h2 & "'>Largest expenses</div>" & head
+                & CONCATENATEX ( tTopD,
+                    VAR fx = IF ( Expenses[Type] = "Fixed", Expenses[Amount], 0 )
+                    VAR vr = IF ( Expenses[Type] = "Variable", Expenses[Amount], 0 )
+                    RETURN "<tr><td style='" & td & "'>" & FORMAT ( Expenses[Date], "mmm d, yyyy", "en-US" ) & "</td><td style='" & td & "text-align:left'>" & Expenses[Description] & "</td><td style='" & td & IF ( fx > 0, "background:#fdc874;", "" ) & "'>R$ " & FORMAT ( fx, "#,##0.00", "en-US" ) & "</td><td style='" & td & IF ( vr > 0, "background:#f6b1ad;", "" ) & "'>R$ " & FORMAT ( vr, "#,##0.00", "en-US" ) & "</td></tr>",
+                    "", Expenses[Amount], DESC, Expenses[Date], DESC )
+                & foot
+        VAR htmHisD =
+            "<div style='" & box & "'><div style='" & h2 & "'>Expense history</div>" & head
+                & CONCATENATEX ( tHisD,
+                    VAR fx = IF ( Expenses[Type] = "Fixed", Expenses[Amount], 0 )
+                    VAR vr = IF ( Expenses[Type] = "Variable", Expenses[Amount], 0 )
+                    RETURN "<tr><td style='" & td & "'>" & FORMAT ( Expenses[Date], "mmm d, yyyy", "en-US" ) & "</td><td style='" & td & "text-align:left'>" & Expenses[Description] & "</td><td style='" & td & IF ( fx > 0, "background:#fdc874;", "" ) & "'>R$ " & FORMAT ( fx, "#,##0.00", "en-US" ) & "</td><td style='" & td & IF ( vr > 0, "background:#f6b1ad;", "" ) & "'>R$ " & FORMAT ( vr, "#,##0.00", "en-US" ) & "</td></tr>",
+                    "", Expenses[Date], DESC, Expenses[Amount], DESC )
+                & foot
+        RETURN
+            "<div style='" & [CSS Page] & "'>" & SUBSTITUTE ( [HTML Header], "{T}", "Cost Report - Aurora Store" )
+                & "<div style='padding:0 20px'>" & htmCards & htmAc
+                & "<div style='display:grid;grid-template-columns:1fr 1.15fr;gap:20px'><div>" & htmMoM & "</div><div>" & htmPayroll & "</div></div>"
+                & htmMonthly
+                & "<div style='display:grid;grid-template-columns:1fr 1fr;gap:20px'><div>" & htmTopD & "</div><div>" & htmHisD & "</div></div></div></div>"
+
+    // =================================================================
+    // PAGE 3 · RESULTS (one gateway vs multi-gateway routing)
+    // =================================================================
+    MEASURE Sales[HTML Results] =
+        VAR dRef = MAX ( Sales[Date] )
+        VAR dIni = MIN ( Sales[Date] )
+        VAR tax = [Param Tax Rate]
+        VAR grw = [Param Growth]
+        VAR infl = [Param Inflation]
+        VAR mnt = [Param Monthly Maintenance]
+        VAR nMonths = DATEDIFF ( dIni, dRef, MONTH ) + 1
+        VAR tD = FILTER ( Expenses, Expenses[Date] >= dIni && Expenses[Date] <= dRef )
+        VAR kNet = [Net Revenue]
+        VAR kOrd = [Orders]
+        VAR kCOGS = [COGS]
+        VAR kTax = kNet * tax
+        VAR kFix = SUMX ( FILTER ( tD, Expenses[Type] = "Fixed" ), Expenses[Amount] ) + 0
+        VAR kVar = SUMX ( FILTER ( tD, Expenses[Type] = "Variable" ), Expenses[Amount] ) + 0
+        VAR kBase = kNet - kCOGS - kTax - kVar - kFix
+        VAR fM = [Fee MP]
+        VAR fA = [Fee Asaas]
+        VAR fR = [Fee Routed]
+        VAR kSetup = [Param Setup Cost] + mnt * nMonths
+        VAR PM = kBase - fM
+        VAR PA = kBase - fA
+        VAR PR = kBase - fR - kSetup
+        VAR gain = PR - PM
+        // ---- projection: baseline = last 12 months ----
+        VAR p0 = EDATE ( dRef, -12 ) + 1
+        VAR sNet = CALCULATE ( [Net Revenue], Sales[Date] >= p0, Sales[Date] <= dRef )
+        VAR sCOGS = CALCULATE ( [COGS], Sales[Date] >= p0, Sales[Date] <= dRef )
+        VAR sFM = CALCULATE ( [Fee MP], Sales[Date] >= p0, Sales[Date] <= dRef )
+        VAR sFA = CALCULATE ( [Fee Asaas], Sales[Date] >= p0, Sales[Date] <= dRef )
+        VAR sFR = CALCULATE ( [Fee Routed], Sales[Date] >= p0, Sales[Date] <= dRef )
+        VAR sFix = SUMX ( FILTER ( Expenses, Expenses[Type] = "Fixed" && Expenses[Date] >= p0 && Expenses[Date] <= dRef ), Expenses[Amount] ) + 0
+        VAR sVar = SUMX ( FILTER ( Expenses, Expenses[Type] = "Variable" && Expenses[Date] >= p0 && Expenses[Date] <= dRef ), Expenses[Amount] ) + 0
+        VAR sRV = sNet - sCOGS - sNet * tax - sVar
+        VAR tPj = ADDCOLUMNS ( GENERATESERIES ( 1, 5, 1 ), "GK", ( 1 + grw ) ^ [Value], "IK", ( 1 + infl ) ^ [Value] )
+        VAR tPj2 =
+            ADDCOLUMNS ( tPj,
+                "REV", sNet * [GK],
+                "PPM", ( sRV - sFM ) * [GK] - sFix * [IK],
+                "PPA", ( sRV - sFA ) * [GK] - sFix * [IK],
+                "PPR", ( sRV - sFR ) * [GK] - sFix * [IK] - mnt * 12 * [IK] )
+        VAR tPj3 = ADDCOLUMNS ( tPj2, "GM", [PPR] - [PPM], "GA", [PPR] - [PPA] )
+        VAR tPj4 = ADDCOLUMNS ( tPj3, "AC", VAR k = [Value] RETURN SUMX ( FILTER ( tPj3, [Value] <= k ), [GM] ), "ACA", VAR k = [Value] RETURN SUMX ( FILTER ( tPj3, [Value] <= k ), [GA] ) )
+        VAR gain5 = SUMX ( tPj3, [GM] )
+        VAR mxAC = MAXX ( tPj4, MAX ( [AC], [ACA] ) )
+        // ---- styles ----
+        VAR crd = [CSS Card]
+        VAR ct = [CSS Card Title]
+        VAR cv = [CSS Card Value]
+        VAR cs = [CSS Card Sub]
+        VAR box = [CSS Box]
+        VAR td = [CSS TD]
+        VAR h2 = "font-size:16px;font-weight:800;color:#86198f;margin:0 0 10px;"
+        VAR th = "<th style='background:#86198f;color:#fff;padding:7px 8px;text-align:center;font-size:12px'>"
+        VAR tab = "<table style='width:100%;border-collapse:collapse;font-size:12px'>"
+        VAR best = "background:#dcfce7;color:#14532d;font-weight:800;"
+        VAR lg = "<span style='display:inline-block;width:11px;height:11px;border-radius:3px;margin:0 5px 0 12px;vertical-align:-1px;background:"
+        // ---- banner + cards ----
+        VAR htmBanner =
+            "<div style='margin-top:14px;border-radius:10px;padding:14px 18px;background:linear-gradient(90deg,#86198f,#db2777);color:#fff;font-size:14px;line-height:1.55'>Same sales, same costs, same team. <b style='color:#fde68a'>The only change is the path each payment takes:</b> instead of sending everything through one gateway, each sale is routed to the cheapest gateway for that payment method and ticket size. Routing setup and maintenance costs are already deducted.</div>"
+        VAR htmCards =
+            "<div style='display:flex;gap:14px;flex-wrap:wrap;margin-top:14px'>"
+                & "<div style='" & crd & "background:linear-gradient(135deg,#e48bc4,#f0287a)'><div style='" & ct & "'>Net profit · current setup</div><div style='" & cv & "'>R$ " & FORMAT ( PM, "#,##0.00", "en-US" ) & "</div><div style='" & cs & "'>Mercado Pago only · margin " & FORMAT ( DIVIDE ( PM, kNet ), "0.0%", "en-US" ) & "</div></div>"
+                & "<div style='" & crd & "background:linear-gradient(135deg,#d81cf3,#a855c7)'><div style='" & ct & "'>Net profit · multi-gateway</div><div style='" & cv & "'>R$ " & FORMAT ( PR, "#,##0.00", "en-US" ) & "</div><div style='" & cs & "'>Smart routing · margin " & FORMAT ( DIVIDE ( PR, kNet ), "0.0%", "en-US" ) & "</div></div>"
+                & "<div style='" & crd & "background:linear-gradient(135deg,#f06fb5,#ef2f88)'><div style='" & ct & "'>Net profit uplift</div><div style='" & cv & "'>+R$ " & FORMAT ( gain, "#,##0.00", "en-US" ) & "</div><div style='" & cs & "'><span style='background:#fff;color:#2e7d32;padding:2px 8px;border-radius:10px;font-weight:700'>+" & FORMAT ( DIVIDE ( gain, ABS ( PM ) ), "0.0%", "en-US" ) & " vs current setup</span></div></div>"
+                & "<div style='" & crd & "background:linear-gradient(135deg,#e879f9,#a21caf)'><div style='" & ct & "'>Effective payment fee</div><div style='" & cv & "'>" & FORMAT ( DIVIDE ( fM, kNet ), "0.00%", "en-US" ) & " → " & FORMAT ( DIVIDE ( fR, kNet ), "0.00%", "en-US" ) & "</div><div style='" & cs & "'>of net revenue</div></div>"
+                & "<div style='" & crd & "background:linear-gradient(135deg,#c026d3,#7c3aed)'><div style='" & ct & "'>Projected 5-year gain</div><div style='" & cv & "'>+R$ " & FORMAT ( gain5 / 1000, "#,##0.0", "en-US" ) & "K</div><div style='" & cs & "'>vs Mercado Pago only · " & FORMAT ( grw, "0%", "en-US" ) & " yearly growth</div></div>"
+                & "</div>"
+        // ---- side-by-side income statement ----
+        VAR tPL = {
+            ( 1, "Net revenue", kNet, kNet, kNet, 0 ),
+            ( 2, "(−) Cost of goods sold", -kCOGS, -kCOGS, -kCOGS, 0 ),
+            ( 3, "(−) Taxes (" & FORMAT ( tax, "0%", "en-US" ) & " of revenue)", -kTax, -kTax, -kTax, 0 ),
+            ( 4, "(−) Variable expenses", -kVar, -kVar, -kVar, 0 ),
+            ( 5, "(−) Fixed expenses", -kFix, -kFix, -kFix, 0 ),
+            ( 6, "(−) Payment fees", -fM, -fA, -fR, 1 ),
+            ( 7, "(−) Routing setup and maintenance", 0, 0, -kSetup, 1 ),
+            ( 8, "= Net profit", PM, PA, PR, 2 )
+        }
+        VAR htmPL =
+            "<div style='" & box & "'><div style='" & h2 & "'>Side-by-side income statement: one gateway vs several</div>" & tab
+                & "<tr>" & th & "Line item</th>" & th & "Mercado Pago only<br><small>current setup</small></th>" & th & "Asaas only<br><small>best single gateway</small></th>" & th & "Multi-gateway routing<br><small>proposal</small></th>" & th & "Difference<br><small>proposal − current</small></th></tr>"
+                & CONCATENATEX ( tPL,
+                    VAR df = [Value5] - [Value3]
+                    VAR tot = [Value6] = 2
+                    RETURN "<tr style='" & IF ( tot, "font-weight:800;background:#fdf2f8", "" ) & "'><td style='" & td & "text-align:left'>" & [Value2] & "</td>"
+                        & "<td style='" & td & "'>R$ " & FORMAT ( [Value3], "#,##0.00", "en-US" ) & "</td><td style='" & td & "'>R$ " & FORMAT ( [Value4], "#,##0.00", "en-US" ) & "</td>"
+                        & "<td style='" & td & IF ( tot, best, "" ) & "'>R$ " & FORMAT ( [Value5], "#,##0.00", "en-US" ) & "</td>"
+                        & "<td style='" & td & "'>" & IF ( [Value6] = 0, "-", "<span style='font-weight:700;color:" & IF ( df >= 0, "#2e7d32", "#d32f2f" ) & "'>" & IF ( df >= 0, "+", "-" ) & "R$ " & FORMAT ( ABS ( df ), "#,##0.00", "en-US" ) & IF ( df >= 0, " ▲", " ▼" ) & "</span>" ) & "</td></tr>",
+                    "", [Value1], ASC )
+                & "<tr><td style='" & td & "text-align:left'>Net margin</td><td style='" & td & "'>" & FORMAT ( DIVIDE ( PM, kNet ), "0.00%", "en-US" ) & "</td><td style='" & td & "'>" & FORMAT ( DIVIDE ( PA, kNet ), "0.00%", "en-US" ) & "</td><td style='" & td & best & "'>" & FORMAT ( DIVIDE ( PR, kNet ), "0.00%", "en-US" ) & "</td><td style='" & td & "'>" & FORMAT ( DIVIDE ( PR - PM, kNet ) * 100, "+0.00;-0.00", "en-US" ) & " p.p.</td></tr></table>"
+                & "<div style='background:#86198f;color:#fff;font-size:11px;border-radius:6px;padding:7px 12px;max-width:520px;margin:10px auto 0;text-align:center'>Even against the best single gateway (Asaas), routing adds R$ " & FORMAT ( PR - PA, "#,##0.00", "en-US" ) & " in the period</div></div>"
+        // ---- monthly charts (last 12 months) ----
+        VAR m12 = DATE ( YEAR ( p0 ), MONTH ( p0 ), 1 )
+        VAR tMo =
+            ADDCOLUMNS ( FILTER ( DISTINCT ( SELECTCOLUMNS ( Sales, "M", DATE ( YEAR ( Sales[Date] ), MONTH ( Sales[Date] ), 1 ) ) ), [M] >= m12 ),
+                "FM", VAR m0 = [M] RETURN CALCULATE ( [Fee MP], Sales[Date] >= m0, Sales[Date] <= EOMONTH ( m0, 0 ) ) + 0,
+                "FA", VAR m0 = [M] RETURN CALCULATE ( [Fee Asaas], Sales[Date] >= m0, Sales[Date] <= EOMONTH ( m0, 0 ) ) + 0,
+                "FR", VAR m0 = [M] RETURN CALCULATE ( [Fee Routed], Sales[Date] >= m0, Sales[Date] <= EOMONTH ( m0, 0 ) ) + 0,
+                "BS", VAR m0 = [M]
+                    VAR m1 = EOMONTH ( m0, 0 )
+                    VAR rr = CALCULATE ( [Net Revenue], Sales[Date] >= m0, Sales[Date] <= m1 ) + 0
+                    RETURN rr - CALCULATE ( [COGS], Sales[Date] >= m0, Sales[Date] <= m1 ) - rr * tax - ( SUMX ( FILTER ( Expenses, Expenses[Date] >= m0 && Expenses[Date] <= m1 ), Expenses[Amount] ) + 0 ) )
+        VAR tMo2 = ADDCOLUMNS ( tMo, "XM", [BS] - [FM], "XR", [BS] - [FR] - mnt )
+        VAR mxF = MAXX ( tMo2, MAX ( [FM], MAX ( [FA], [FR] ) ) )
+        VAR mxL = MAXX ( tMo2, MAX ( [XM], [XR] ) )
+        VAR axis = "</div><div style='display:flex;gap:5px;padding-top:4px'>" & CONCATENATEX ( tMo2, "<div style='flex:1;text-align:center;font-size:10px;color:#555'>" & FORMAT ( [M], "mmm yy", "en-US" ) & "</div>", "", [M], ASC ) & "</div></div>"
+        VAR htmFees =
+            "<div style='" & box & "'><div style='" & h2 & "'>Monthly payment fees (last 12 months)</div>"
+                & "<div style='font-size:12px;margin-bottom:8px'>" & lg & "#0891b2'></span>Mercado Pago only" & lg & "#2563eb'></span>Asaas only" & lg & "#a21caf'></span>Multi-gateway</div>"
+                & "<div style='display:flex;align-items:flex-end;gap:5px;height:225px;border-bottom:1px solid #cfd8e3'>"
+                & CONCATENATEX ( tMo2,
+                    VAR b1 = ROUND ( DIVIDE ( [FM], mxF ) * 195, 0 )
+                    VAR b2 = ROUND ( DIVIDE ( [FA], mxF ) * 195, 0 )
+                    VAR b3 = ROUND ( DIVIDE ( [FR], mxF ) * 195, 0 )
+                    RETURN "<div style='flex:1;display:flex;align-items:flex-end;justify-content:center;gap:1px;height:100%'>"
+                        & "<div style='width:30%;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%'><div style='font-size:7.5px;font-weight:700'>" & FORMAT ( [FM] / 1000, "0.0", "en-US" ) & "K</div><div style='width:100%;height:" & FORMAT ( b1, "0", "en-US" ) & "px;background:#0891b2'></div></div>"
+                        & "<div style='width:30%;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%'><div style='font-size:7.5px;font-weight:700'>" & FORMAT ( [FA] / 1000, "0.0", "en-US" ) & "K</div><div style='width:100%;height:" & FORMAT ( b2, "0", "en-US" ) & "px;background:#2563eb'></div></div>"
+                        & "<div style='width:30%;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%'><div style='font-size:7.5px;font-weight:700'>" & FORMAT ( [FR] / 1000, "0.0", "en-US" ) & "K</div><div style='width:100%;height:" & FORMAT ( b3, "0", "en-US" ) & "px;background:#a21caf'></div></div></div>",
+                    "", [M], ASC )
+                & axis
+        VAR htmProfit =
+            "<div style='" & box & "'><div style='" & h2 & "'>Monthly net profit: current vs multi-gateway</div>"
+                & "<div style='font-size:12px;margin-bottom:8px'>" & lg & "#f48fb1'></span>Mercado Pago only" & lg & "#7c3aed'></span>Multi-gateway (incl. maintenance)</div>"
+                & "<div style='display:flex;align-items:flex-end;gap:5px;height:225px;border-bottom:1px solid #cfd8e3'>"
+                & CONCATENATEX ( tMo2,
+                    VAR b1 = ROUND ( DIVIDE ( MAX ( [XM], 0 ), mxL ) * 195, 0 )
+                    VAR b2 = ROUND ( DIVIDE ( MAX ( [XR], 0 ), mxL ) * 195, 0 )
+                    RETURN "<div style='flex:1;display:flex;align-items:flex-end;justify-content:center;gap:2px;height:100%'>"
+                        & "<div style='width:45%;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%'><div style='font-size:8px;font-weight:700;color:" & IF ( [XM] < 0, "#d32f2f", "#222" ) & "'>" & FORMAT ( [XM] / 1000, "0.0", "en-US" ) & "K</div><div style='width:100%;height:" & FORMAT ( b1, "0", "en-US" ) & "px;background:#f48fb1;border-radius:3px 3px 0 0'></div></div>"
+                        & "<div style='width:45%;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%'><div style='font-size:8px;font-weight:700;color:" & IF ( [XR] < 0, "#d32f2f", "#222" ) & "'>" & FORMAT ( [XR] / 1000, "0.0", "en-US" ) & "K</div><div style='width:100%;height:" & FORMAT ( b2, "0", "en-US" ) & "px;background:#7c3aed;border-radius:3px 3px 0 0'></div></div></div>",
+                    "", [M], ASC )
+                & axis
+        // ---- payment method x ticket band ----
+        VAR tFF =
+            ADDCOLUMNS ( SUMMARIZE ( Sales, Sales[Payment_Method], Sales[Value_Band] ),
+                "N", CALCULATE ( [Orders] ),
+                "TK", CALCULATE ( [Avg Ticket] ),
+                "TM", CALCULATE ( [Fee MP] ),
+                "TA", CALCULATE ( [Fee Asaas] ),
+                "TR", CALCULATE ( [Fee Routed] ),
+                "API", CALCULATE ( CONCATENATEX ( VALUES ( Sales[Routed_API] ), Sales[Routed_API], " + ", CALCULATE ( COUNTROWS ( Sales ) ), DESC ) ) )
+        VAR htmFF =
+            "<div style='" & box & "'><div style='" & h2 & "'>Where the savings come from: payment method × ticket size</div>" & tab
+                & "<tr>" & th & "Method</th>" & th & "Ticket band</th>" & th & "Orders</th>" & th & "Avg ticket</th>" & th & "Routed to</th>" & th & "Avg fee MP only</th>" & th & "Avg fee Asaas only</th>" & th & "Avg fee multi-gateway</th>" & th & "Total savings vs MP only</th></tr>"
+                & CONCATENATEX ( tFF,
+                    VAR apiH = SUBSTITUTE ( SUBSTITUTE ( SUBSTITUTE ( SUBSTITUTE ( [API], "InfinitePay", "<b style='color:#16a34a'>InfinitePay</b>" ), "Asaas", "<b style='color:#2563eb'>Asaas</b>" ), "Mercado Pago", "<b style='color:#0891b2'>Mercado Pago</b>" ), "Inter PJ", "<b style='color:#ea580c'>Inter PJ</b>" )
+                    VAR sav = [TM] - [TR]
+                    RETURN "<tr><td style='" & td & "text-align:left'><b>" & Sales[Payment_Method] & "</b></td><td style='" & td & "'>" & MID ( Sales[Value_Band], 4, 50 ) & "</td><td style='" & td & "'>" & FORMAT ( [N], "#,##0", "en-US" ) & "</td><td style='" & td & "'>R$ " & FORMAT ( [TK], "#,##0.00", "en-US" ) & "</td><td style='" & td & "text-align:left'>" & apiH & "</td>"
+                        & "<td style='" & td & "'>R$ " & FORMAT ( DIVIDE ( [TM], [N] ), "#,##0.00", "en-US" ) & "</td><td style='" & td & "'>R$ " & FORMAT ( DIVIDE ( [TA], [N] ), "#,##0.00", "en-US" ) & "</td><td style='" & td & best & "'>R$ " & FORMAT ( DIVIDE ( [TR], [N] ), "#,##0.00", "en-US" ) & "</td>"
+                        & "<td style='" & td & "'><span style='font-weight:700;color:#2e7d32'>+R$ " & FORMAT ( sav, "#,##0.00", "en-US" ) & " ▲</span></td></tr>",
+                    "", SWITCH ( Sales[Payment_Method], "Pix", 1, "Credit", 2, 3 ), ASC, Sales[Value_Band], ASC )
+                & "<tr style='font-weight:800'><td style='" & td & "text-align:left'>Total</td><td style='" & td & "'></td><td style='" & td & "'>" & FORMAT ( kOrd, "#,##0", "en-US" ) & "</td><td style='" & td & "'>R$ " & FORMAT ( DIVIDE ( kNet, kOrd ), "#,##0.00", "en-US" ) & "</td><td style='" & td & "'></td><td style='" & td & "'>R$ " & FORMAT ( DIVIDE ( fM, kOrd ), "#,##0.00", "en-US" ) & "</td><td style='" & td & "'>R$ " & FORMAT ( DIVIDE ( fA, kOrd ), "#,##0.00", "en-US" ) & "</td><td style='" & td & best & "'>R$ " & FORMAT ( DIVIDE ( fR, kOrd ), "#,##0.00", "en-US" ) & "</td><td style='" & td & "'>+R$ " & FORMAT ( fM - fR, "#,##0.00", "en-US" ) & "</td></tr></table></div>"
+        // ---- distribution by gateway ----
+        VAR tApi = ADDCOLUMNS ( VALUES ( Sales[Routed_API] ), "N", CALCULATE ( [Orders] ), "RV", CALCULATE ( [Net Revenue] ), "TX", CALCULATE ( [Fee Routed] ) )
+        VAR barN =
+            CONCATENATEX ( tApi,
+                VAR col = SWITCH ( Sales[Routed_API], "Asaas", "#2563eb", "Mercado Pago", "#0891b2", "Inter PJ", "#ea580c", "InfinitePay", "#16a34a", "#888888" )
+                VAR sh = DIVIDE ( [N], kOrd )
+                RETURN "<div style='flex:" & FORMAT ( [N], "0", "en-US" ) & ";background:" & col & ";color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;white-space:nowrap;overflow:hidden'>" & IF ( sh > 0.08, Sales[Routed_API] & " " & FORMAT ( sh, "0%", "en-US" ), "" ) & "</div>",
+                "", [N], DESC )
+        VAR barV =
+            CONCATENATEX ( tApi,
+                VAR col = SWITCH ( Sales[Routed_API], "Asaas", "#2563eb", "Mercado Pago", "#0891b2", "Inter PJ", "#ea580c", "InfinitePay", "#16a34a", "#888888" )
+                VAR sh = DIVIDE ( [RV], kNet )
+                RETURN "<div style='flex:" & FORMAT ( [RV], "0", "en-US" ) & ";background:" & col & ";color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;white-space:nowrap;overflow:hidden'>" & IF ( sh > 0.08, Sales[Routed_API] & " " & FORMAT ( sh, "0%", "en-US" ), "" ) & "</div>",
+                "", [N], DESC )
+        VAR htmApi =
+            "<div style='" & box & "'><div style='" & h2 & "'>Where payments go under routing</div>"
+                & "<div style='font-size:12px;font-weight:700'>By number of orders</div><div style='display:flex;height:36px;border-radius:8px;overflow:hidden;margin:6px 0 10px'>" & barN & "</div>"
+                & "<div style='font-size:12px;font-weight:700'>By amount received</div><div style='display:flex;height:36px;border-radius:8px;overflow:hidden;margin:6px 0 10px'>" & barV & "</div>"
+                & tab & "<tr>" & th & "Gateway</th>" & th & "Orders</th>" & th & "% orders</th>" & th & "Amount received</th>" & th & "Fees paid</th></tr>"
+                & CONCATENATEX ( tApi, "<tr><td style='" & td & "text-align:left'><b>" & Sales[Routed_API] & "</b></td><td style='" & td & "'>" & FORMAT ( [N], "#,##0", "en-US" ) & "</td><td style='" & td & "'>" & FORMAT ( DIVIDE ( [N], kOrd ), "0.0%", "en-US" ) & "</td><td style='" & td & "'>R$ " & FORMAT ( [RV], "#,##0.00", "en-US" ) & "</td><td style='" & td & "'>R$ " & FORMAT ( [TX], "#,##0.00", "en-US" ) & "</td></tr>", "", [N], DESC )
+                & "</table></div>"
+        // ---- routing rules + fee table ----
+        VAR rg = "border-radius:10px;padding:12px 14px;background:#fdf4ff;border:1px solid #f0c5f7;margin-bottom:10px;font-size:12.5px;line-height:1.55"
+        VAR htmRules =
+            "<div style='" & box & "'><div style='" & h2 & "'>Routing rules</div>"
+                & "<div style='" & rg & "'><b style='color:#86198f'>⚡ Pix:</b> <b style='color:#16a34a'>InfinitePay</b> at any amount (0%). Fallback: Mercado Pago up to R$ 10.10, Inter PJ above.</div>"
+                & "<div style='" & rg & "'><b style='color:#86198f'>💳 Credit card:</b> <b style='color:#16a34a'>InfinitePay</b> up to R$ 40.50 (4.20%), <b style='color:#2563eb'>Asaas</b> above (2.99% + R$ 0.49).</div>"
+                & "<div style='" & rg & "'><b style='color:#86198f'>🏧 Debit card:</b> <b style='color:#0891b2'>Mercado Pago</b> up to R$ 16.67 (3.99%), <b style='color:#2563eb'>Asaas</b> above (1.89% + R$ 0.35).</div>"
+                & tab & "<tr>" & th & "Gateway</th>" & th & "Method</th>" & th & "Fee</th>" & th & "Settlement</th></tr>"
+                & CONCATENATEX ( Payment_Fees,
+                    VAR pp = Payment_Fees[Percentage]
+                    VAR fx = Payment_Fees[Fixed]
+                    VAR fe = IF ( pp > 0, FORMAT ( pp, "0.00%", "en-US" ), "" ) & IF ( pp > 0 && fx > 0, " + ", "" ) & IF ( fx > 0, "R$ " & FORMAT ( fx, "0.00", "en-US" ), "" ) & IF ( pp = 0 && fx = 0, "0%", "" )
+                        & IF ( Payment_Fees[Minimum] > 0, " (min R$ " & FORMAT ( Payment_Fees[Minimum], "0.00", "en-US" ) & " · max R$ " & FORMAT ( Payment_Fees[Maximum], "0.00", "en-US" ) & ")", "" )
+                    RETURN "<tr><td style='" & td & "text-align:left'><b>" & Payment_Fees[API] & "</b></td><td style='" & td & "'>" & Payment_Fees[Payment_Method] & "</td><td style='" & td & "'>" & fe & "</td><td style='" & td & "text-align:left'>" & Payment_Fees[Settlement] & "</td></tr>",
+                    "", Payment_Fees[API], ASC, Payment_Fees[Payment_Method], ASC )
+                & "</table></div>"
+        // ---- 5-year projection: full-width table, chart below (no horizontal scroll) ----
+        VAR htmProj =
+            "<div style='" & box & "'><div style='" & h2 & "'>5-year projection</div>" & tab
+                & "<tr>" & th & "Year</th>" & th & "Projected revenue</th>" & th & "Profit MP only</th>" & th & "Profit Asaas only</th>" & th & "Profit multi-gateway</th>" & th & "Gain vs MP</th>" & th & "Cumulative vs MP</th></tr>"
+                & CONCATENATEX ( tPj4,
+                    "<tr><td style='" & td & "text-align:left'>Year " & [Value] & " <small>(" & FORMAT ( EDATE ( dRef, 12 * ( [Value] - 1 ) ) + 1, "mmm yy", "en-US" ) & "–" & FORMAT ( EDATE ( dRef, 12 * [Value] ), "mmm yy", "en-US" ) & ")</small></td>"
+                        & "<td style='" & td & "'>R$ " & FORMAT ( [REV] / 1000000, "#,##0.00", "en-US" ) & "M</td><td style='" & td & "'>R$ " & FORMAT ( [PPM] / 1000, "#,##0.0", "en-US" ) & "K</td><td style='" & td & "'>R$ " & FORMAT ( [PPA] / 1000, "#,##0.0", "en-US" ) & "K</td>"
+                        & "<td style='" & td & best & "'>R$ " & FORMAT ( [PPR] / 1000, "#,##0.0", "en-US" ) & "K</td><td style='" & td & "'><span style='color:#2e7d32;font-weight:700'>+R$ " & FORMAT ( [GM], "#,##0", "en-US" ) & " ▲</span></td><td style='" & td & "'><b>R$ " & FORMAT ( [AC], "#,##0", "en-US" ) & "</b></td></tr>",
+                    "", [Value], ASC )
+                & "</table><div style='display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:16px'>"
+                & "<div style='font-size:11.5px;color:#555;line-height:1.6'>Baseline: last 12 months. Revenue, COGS, taxes, variable expenses and payment fees grow " & FORMAT ( grw, "0%", "en-US" ) & " per year; fixed expenses and routing maintenance (R$ " & FORMAT ( mnt, "#,##0", "en-US" ) & "/month) grow " & FORMAT ( infl, "0%", "en-US" ) & " per year.</div>"
+                & "<div><div style='font-size:12px;margin-bottom:8px'>" & lg & "#a21caf'></span>Cumulative gain vs MP only" & lg & "#f0abfc'></span>vs Asaas only</div>"
+                & "<div style='display:flex;align-items:flex-end;gap:8px;height:220px;border-bottom:1px solid #cfd8e3'>"
+                & CONCATENATEX ( tPj4,
+                    VAR b1 = ROUND ( DIVIDE ( MAX ( [AC], 0 ), mxAC ) * 190, 0 )
+                    VAR b2 = ROUND ( DIVIDE ( MAX ( [ACA], 0 ), mxAC ) * 190, 0 )
+                    RETURN "<div style='flex:1;display:flex;align-items:flex-end;justify-content:center;gap:3px;height:100%'>"
+                        & "<div style='width:45%;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%'><div style='font-size:9.5px;font-weight:700'>" & FORMAT ( [AC] / 1000, "#,##0.0", "en-US" ) & "K</div><div style='width:100%;height:" & FORMAT ( b1, "0", "en-US" ) & "px;background:#a21caf;border-radius:3px 3px 0 0'></div></div>"
+                        & "<div style='width:45%;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%'><div style='font-size:9.5px;font-weight:700'>" & FORMAT ( [ACA] / 1000, "#,##0.0", "en-US" ) & "K</div><div style='width:100%;height:" & FORMAT ( b2, "0", "en-US" ) & "px;background:#f0abfc;border-radius:3px 3px 0 0'></div></div></div>",
+                    "", [Value], ASC )
+                & "</div><div style='display:flex;gap:8px;padding-top:4px'>"
+                & CONCATENATEX ( tPj4, "<div style='flex:1;text-align:center;font-size:10px;color:#555'>Year " & [Value] & "</div>", "", [Value], ASC )
+                & "</div></div></div></div>"
+        VAR htmNote =
+            "<div style='font-size:11.5px;color:#555;line-height:1.6;margin-top:14px'><b>Assumptions and caveats.</b> Company, sales, costs and targets are fictional. Standard public fees for the four Brazilian gateways were checked on Sep 30, 2026, with no volume discounts. Asaas credit card funds are not instant (early settlement costs about 1.15–1.25% per month). Mercado Pago online debit applies to the CAIXA virtual debit card. InfinitePay checkout is a hosted payment link with no published native split. Taxes estimated at "
+                & FORMAT ( tax, "0%", "en-US" ) & " of revenue. Not financial, accounting or legal advice.</div>"
+        RETURN
+            "<div style='" & [CSS Page] & "'>" & SUBSTITUTE ( [HTML Header], "{T}", "Results Report - Aurora Store" )
+                & "<div style='padding:0 20px'>" & htmBanner & htmCards & htmPL
+                & "<div style='display:grid;grid-template-columns:1fr 1fr;gap:20px'><div>" & htmFees & "</div><div>" & htmProfit & "</div></div>"
+                & htmFF
+                & "<div style='display:grid;grid-template-columns:1fr 1fr;gap:20px'><div>" & htmApi & "</div><div>" & htmRules & "</div></div>"
+                & htmProj & htmNote & "</div></div>"
+
+// Test query (required by DAX query view)
+EVALUATE
+{ ( [Net Revenue], [Fee MP], [Fee Routed], [Savings vs MP] ) }
